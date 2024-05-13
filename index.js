@@ -34,12 +34,12 @@ async function run() {
           const result = await bookscollection.findOne(query);
           res.send(result);
       })
-      // app.post('/book', async (req, res) => {
-      //     const newbook = req.body;
-      //     console.log(newbook);
-      //     const result = await bookscollection.insertOne(newbook);
-      //     res.send(result);
-      // })
+      app.post('/book', async (req, res) => {
+          const newbook = req.body;
+          console.log(newbook);
+          const result = await bookscollection.insertOne(newbook);
+          res.send(result);
+      })
    
 
     // Send a ping to confirm a successful connection
