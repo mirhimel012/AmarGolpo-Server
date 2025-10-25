@@ -120,14 +120,11 @@ app.put('/books/:id', async (req, res) => {
     const book = await booksCollection.findOne({ _id: new ObjectId(id) });
     if (!book) return res.status(404).send({ message: 'Book not found' });
 
-    // Handle ratings
+    // ✅ Handle Ratings
     if (updateData.ratingUpdate) {
       const { userId, rating } = updateData.ratingUpdate;
-
-      // Ensure book.ratings is an array
       const currentRatings = Array.isArray(book.ratings) ? book.ratings : [];
 
-      // Update or add user rating
       const existingIndex = currentRatings.findIndex((r) => r.userId === userId);
       if (existingIndex >= 0) {
         currentRatings[existingIndex].rating = rating;
@@ -135,36 +132,32 @@ app.put('/books/:id', async (req, res) => {
         currentRatings.push({ userId, rating });
       }
 
-      // Calculate average rating
       const avgRating =
-        currentRatings.reduce((sum, r) => sum + r.rating, 0) /
-        (currentRatings.length || 1);
+        currentRatings.reduce((sum, r) => sum + r.rating, 0) / currentRatings.length;
 
-      // Update DB
-      const result = await booksCollection.updateOne(
+      await booksCollection.updateOne(
         { _id: new ObjectId(id) },
         {
           $set: {
             ratings: currentRatings,
-            rating: avgRating.toFixed(1), // store as a single value for display
+            rating: avgRating.toFixed(1),
           },
         }
       );
 
       return res.send({
-        message: '✅ Rating updated successfully',
+        message: "✅ Rating updated successfully",
         avgRating,
-        result,
       });
     }
 
-    // Normal updates (likes/comments etc.)
+    // Normal update for likes/comments
     const result = await booksCollection.updateOne(
       { _id: new ObjectId(id) },
       { $set: updateData }
     );
 
-    res.send({ message: '✅ Book updated successfully', result });
+    res.send({ message: "✅ Book updated successfully", result });
   } catch (err) {
     console.error('❌ PUT /books/:id error:', err);
     res.status(500).send({ message: 'Error updating book', error: String(err.message || err) });
