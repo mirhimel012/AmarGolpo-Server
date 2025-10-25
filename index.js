@@ -115,17 +115,62 @@ app.put('/books/:id', async (req, res) => {
   try {
     if (!booksCollection) throw new Error('DB not connected');
     const id = req.params.id;
-    const updatedBook = req.body;
+    const updateData = req.body;
+
+    const book = await booksCollection.findOne({ _id: new ObjectId(id) });
+    if (!book) return res.status(404).send({ message: 'Book not found' });
+
+    // Handle ratings
+    if (updateData.ratingUpdate) {
+      const { userId, rating } = updateData.ratingUpdate;
+
+      // Ensure book.ratings is an array
+      const currentRatings = Array.isArray(book.ratings) ? book.ratings : [];
+
+      // Update or add user rating
+      const existingIndex = currentRatings.findIndex((r) => r.userId === userId);
+      if (existingIndex >= 0) {
+        currentRatings[existingIndex].rating = rating;
+      } else {
+        currentRatings.push({ userId, rating });
+      }
+
+      // Calculate average rating
+      const avgRating =
+        currentRatings.reduce((sum, r) => sum + r.rating, 0) /
+        (currentRatings.length || 1);
+
+      // Update DB
+      const result = await booksCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            ratings: currentRatings,
+            rating: avgRating.toFixed(1), // store as a single value for display
+          },
+        }
+      );
+
+      return res.send({
+        message: '✅ Rating updated successfully',
+        avgRating,
+        result,
+      });
+    }
+
+    // Normal updates (likes/comments etc.)
     const result = await booksCollection.updateOne(
       { _id: new ObjectId(id) },
-      { $set: updatedBook }
+      { $set: updateData }
     );
-    res.send(result);
+
+    res.send({ message: '✅ Book updated successfully', result });
   } catch (err) {
-    console.error('❌ PUT /books/:id error:', err && (err.stack || err.message || err));
+    console.error('❌ PUT /books/:id error:', err);
     res.status(500).send({ message: 'Error updating book', error: String(err.message || err) });
   }
 });
+
 
 app.delete('/books/:id', async (req, res) => {
   try {
