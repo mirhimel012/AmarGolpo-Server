@@ -16,7 +16,7 @@ const allowedOrigins = [
 // Middleware
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // allow Postman, etc.
+    if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
     const msg = `❌ CORS blocked for origin: ${origin}`;
     console.error(msg);
@@ -32,10 +32,6 @@ const DB_USER = process.env.DB_USER || '';
 const DB_PASS = process.env.DB_PASS || '';
 const uri = `mongodb+srv://${DB_USER}:${DB_PASS}@cluster0.0coytx6.mongodb.net/?retryWrites=true&w=majority&appName=AmarGolpo`;
 
-// Diagnostic log
-console.log('Mongo URI user:', DB_USER);
-console.log('Mongo password length:', DB_PASS ? DB_PASS.length : 0);
-
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -45,12 +41,14 @@ const client = new MongoClient(uri, {
 });
 
 let booksCollection = null;
+let quotesCollection = null;
 
 async function connectDB() {
   try {
     await client.connect();
-    const db = client.db('booksDB'); // keep same database
-    booksCollection = db.collection('books'); // keep same collection
+    const db = client.db('booksDB'); // same database
+    booksCollection = db.collection('books');
+    quotesCollection = db.collection('quotes'); // NEW collection
     await client.db('admin').command({ ping: 1 });
     console.log('✅ MongoDB connected successfully');
   } catch (error) {
@@ -59,10 +57,10 @@ async function connectDB() {
   }
 }
 
-// Health check route
+// Health check
 app.get('/health', async (req, res) => {
   try {
-    if (!booksCollection) await connectDB();
+    if (!booksCollection || !quotesCollection) await connectDB();
     await client.db('admin').command({ ping: 1 });
     res.json({ ok: true, message: '✅ Server & DB connected' });
   } catch (err) {
@@ -75,7 +73,10 @@ app.get('/', (req, res) => {
   res.send('AmarGolpo server is running ✅');
 });
 
-// CRUD endpoints for books (stories)
+/////////////////////
+// BOOKS (existing)
+/////////////////////
+
 app.get('/books', async (req, res) => {
   try {
     if (!booksCollection) throw new Error('DB not connected');
@@ -164,7 +165,6 @@ app.put('/books/:id', async (req, res) => {
   }
 });
 
-
 app.delete('/books/:id', async (req, res) => {
   try {
     if (!booksCollection) throw new Error('DB not connected');
@@ -177,7 +177,98 @@ app.delete('/books/:id', async (req, res) => {
   }
 });
 
-// Connect DB first, then start server
+/////////////////////
+// QUOTES (NEW)
+/////////////////////
+
+// Get all quotes, optional category filter
+app.get('/quotes', async (req, res) => {
+  try {
+    if (!quotesCollection) throw new Error('DB not connected');
+    const { category } = req.query;
+    let query = {};
+    if (category) query.category = category;
+
+    const result = await quotesCollection.find(query).sort({ createdAt: -1 }).toArray();
+    res.send(Array.isArray(result) ? result : []);
+  } catch (err) {
+    console.error('❌ GET /quotes error:', err);
+    res.status(500).send({ message: 'Server error', error: String(err.message || err) });
+  }
+});
+
+// Add a new quote
+app.post('/quotes', async (req, res) => {
+  try {
+    if (!quotesCollection) throw new Error('DB not connected');
+    const { text, author, category } = req.body;
+    if (!text || !author || !category) {
+      return res.status(400).send({ message: 'Text, author, and category are required' });
+    }
+
+    const newQuote = {
+      text,
+      author,
+      category,
+      likes: [],
+      createdAt: new Date()
+    };
+
+    const result = await quotesCollection.insertOne(newQuote);
+    res.send(result);
+  } catch (err) {
+    console.error('❌ POST /quotes error:', err);
+    res.status(500).send({ message: 'Error adding quote', error: String(err.message || err) });
+  }
+});
+
+// Like / Unlike a quote
+app.put('/quotes/:id/like', async (req, res) => {
+  try {
+    if (!quotesCollection) throw new Error('DB not connected');
+    const { userId } = req.body;
+    if (!userId) return res.status(400).send({ message: 'userId is required' });
+
+    const quote = await quotesCollection.findOne({ _id: new ObjectId(req.params.id) });
+    if (!quote) return res.status(404).send({ message: 'Quote not found' });
+
+    let updatedLikes = Array.isArray(quote.likes) ? [...quote.likes] : [];
+    if (updatedLikes.includes(userId)) {
+      // unlike
+      updatedLikes = updatedLikes.filter(id => id !== userId);
+    } else {
+      // like
+      updatedLikes.push(userId);
+    }
+
+    await quotesCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { likes: updatedLikes } }
+    );
+
+    res.send({ message: '✅ Like updated', likesCount: updatedLikes.length });
+  } catch (err) {
+    console.error('❌ PUT /quotes/:id/like error:', err);
+    res.status(500).send({ message: 'Error updating like', error: String(err.message || err) });
+  }
+});
+
+// Delete a quote (optional)
+app.delete('/quotes/:id', async (req, res) => {
+  try {
+    if (!quotesCollection) throw new Error('DB not connected');
+    const id = req.params.id;
+    const result = await quotesCollection.deleteOne({ _id: new ObjectId(id) });
+    res.send(result);
+  } catch (err) {
+    console.error('❌ DELETE /quotes/:id error:', err);
+    res.status(500).send({ message: 'Error deleting quote', error: String(err.message || err) });
+  }
+});
+
+/////////////////////
+// START SERVER
+/////////////////////
 connectDB()
   .then(() => {
     app.listen(port, () => {
